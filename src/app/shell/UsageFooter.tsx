@@ -12,6 +12,8 @@ import { consumeCodexRateLimitResetCredit } from "../../features/providers/model
 import {
   errorRateLimits,
   unavailableRateLimits,
+  RATE_LIMIT_MIN_REFETCH_MS,
+  RATE_LIMIT_POLL_MS,
   type RateLimitProvider,
 } from "../../features/providers/model/rateLimits";
 import {
@@ -293,10 +295,65 @@ export function UsageChips({
     wantDevin,
   ]);
 
+  const isAnyActiveSnapshotStale = useCallback(
+    (maxAgeMs: number) => {
+      const timestamp = Date.now();
+      if (wantClaude && claudeAccountAvailable) {
+        const c = getCachedRateLimits("claude", claudeAccountId);
+        if (c.status === "ok" && timestamp - c.updatedAt >= maxAgeMs) return true;
+      }
+      if (wantCodex && codexAccountAvailable) {
+        const c = getCachedRateLimits("codex", codexAccountId);
+        if (c.status === "ok" && timestamp - c.updatedAt >= maxAgeMs) return true;
+      }
+      if (wantOpencode) {
+        const c = getCachedRateLimits("opencode");
+        if (c.status === "ok" && timestamp - c.updatedAt >= maxAgeMs) return true;
+      }
+      if (wantDevin) {
+        const c = getCachedRateLimits("devin");
+        if (c.status === "ok" && timestamp - c.updatedAt >= maxAgeMs) return true;
+      }
+      return false;
+    },
+    [
+      claudeAccountAvailable,
+      claudeAccountId,
+      codexAccountAvailable,
+      codexAccountId,
+      wantClaude,
+      wantCodex,
+      wantOpencode,
+      wantDevin,
+    ],
+  );
+
   useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), CLOCK_MS);
+    const handleReturn = () => {
+      if (
+        document.visibilityState === "visible" &&
+        isAnyActiveSnapshotStale(RATE_LIMIT_MIN_REFETCH_MS)
+      ) {
+        void refresh();
+      }
+    };
+    window.addEventListener("focus", handleReturn);
+    document.addEventListener("visibilitychange", handleReturn);
+    return () => {
+      window.removeEventListener("focus", handleReturn);
+      document.removeEventListener("visibilitychange", handleReturn);
+    };
+  }, [isAnyActiveSnapshotStale, refresh]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setNow(Date.now());
+      if (isAnyActiveSnapshotStale(RATE_LIMIT_POLL_MS)) {
+        void refresh();
+      }
+    }, CLOCK_MS);
     return () => window.clearInterval(timer);
-  }, []);
+  }, [isAnyActiveSnapshotStale, refresh]);
 
   const consumeCodexReset = useCallback(
     async (creditId?: string) => {
