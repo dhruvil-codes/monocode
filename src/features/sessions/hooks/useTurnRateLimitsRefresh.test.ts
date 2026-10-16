@@ -104,4 +104,56 @@ describe("useTurnRateLimitsRefresh", () => {
 
     expect(scheduleSpy).not.toHaveBeenCalled();
   });
+
+  it("refreshes the provider that ran the turn even if the session switched model while busy", () => {
+    const scheduleSpy = vi.spyOn(
+      rateLimitsCache,
+      "scheduleRateLimitsAutoRefresh",
+    );
+    const initialSession = {
+      ...newSession("claude", "/repo"),
+      id: "sess-3",
+      providerAccountId: "work-account",
+    };
+
+    // Mount while busy running Claude turn
+    act(() => {
+      root.render(
+        createElement(TestHarness, {
+          sessions: [initialSession],
+          busySessionIds: new Set(["sess-3"]),
+        }),
+      );
+    });
+
+    // User switches to Codex while turn is still busy
+    const switchedSession = {
+      ...initialSession,
+      harness: "codex" as const,
+      providerAccountId: undefined,
+    };
+    act(() => {
+      root.render(
+        createElement(TestHarness, {
+          sessions: [switchedSession],
+          busySessionIds: new Set(["sess-3"]),
+        }),
+      );
+    });
+
+    // Turn completes
+    act(() => {
+      root.render(
+        createElement(TestHarness, {
+          sessions: [switchedSession],
+          busySessionIds: new Set(),
+        }),
+      );
+    });
+
+    // Should refresh Claude and work-account that ran the turn, not Codex
+    expect(scheduleSpy).toHaveBeenCalledTimes(1);
+    expect(scheduleSpy).toHaveBeenCalledWith("claude", "work-account");
+  });
 });
+

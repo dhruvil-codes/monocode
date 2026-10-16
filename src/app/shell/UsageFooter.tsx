@@ -14,6 +14,7 @@ import {
   unavailableRateLimits,
   RATE_LIMIT_MIN_REFETCH_MS,
   RATE_LIMIT_POLL_MS,
+  type ProviderRateLimits,
   type RateLimitProvider,
 } from "../../features/providers/model/rateLimits";
 import {
@@ -298,21 +299,20 @@ export function UsageChips({
   const isAnyActiveSnapshotStale = useCallback(
     (maxAgeMs: number) => {
       const timestamp = Date.now();
+      const isStale = (c: ProviderRateLimits) =>
+        (c.status === "ok" || c.status === "error") && timestamp - c.updatedAt >= maxAgeMs;
+
       if (wantClaude && claudeAccountAvailable) {
-        const c = getCachedRateLimits("claude", claudeAccountId);
-        if (c.status === "ok" && timestamp - c.updatedAt >= maxAgeMs) return true;
+        if (isStale(getCachedRateLimits("claude", claudeAccountId))) return true;
       }
       if (wantCodex && codexAccountAvailable) {
-        const c = getCachedRateLimits("codex", codexAccountId);
-        if (c.status === "ok" && timestamp - c.updatedAt >= maxAgeMs) return true;
+        if (isStale(getCachedRateLimits("codex", codexAccountId))) return true;
       }
       if (wantOpencode) {
-        const c = getCachedRateLimits("opencode");
-        if (c.status === "ok" && timestamp - c.updatedAt >= maxAgeMs) return true;
+        if (isStale(getCachedRateLimits("opencode"))) return true;
       }
       if (wantDevin) {
-        const c = getCachedRateLimits("devin");
-        if (c.status === "ok" && timestamp - c.updatedAt >= maxAgeMs) return true;
+        if (isStale(getCachedRateLimits("devin"))) return true;
       }
       return false;
     },
@@ -337,6 +337,7 @@ export function UsageChips({
         void refresh();
       }
     };
+    handleReturn();
     window.addEventListener("focus", handleReturn);
     document.addEventListener("visibilitychange", handleReturn);
     return () => {

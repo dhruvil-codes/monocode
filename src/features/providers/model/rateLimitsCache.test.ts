@@ -18,6 +18,7 @@ vi.mock("./rateLimitsFetch", () => ({
 import {
   clearCachedRateLimits,
   getCachedRateLimits,
+  loadRateLimits,
   scheduleRateLimitsAutoRefresh,
   cancelRateLimitsAutoRefresh,
   AUTO_REFRESH_DEBOUNCE_MS,
@@ -95,4 +96,42 @@ describe("rateLimitsCache auto-refresh debouncing", () => {
 
     expect(fetches.claude).not.toHaveBeenCalled();
   });
+
+  it("cancels a scheduled auto-refresh when an intervening forced load starts", async () => {
+    fetches.claude.mockResolvedValue(sampleLimits(15));
+
+    // Schedule auto-refresh (e.g. from turn completion)
+    scheduleRateLimitsAutoRefresh("claude", "default", 1000);
+
+    // User or focus triggers a forced load before debounce timeout fires
+    await vi.advanceTimersByTimeAsync(300);
+    await loadRateLimits("claude", "default", true);
+
+    expect(fetches.claude).toHaveBeenCalledTimes(1);
+
+    // Debounce window completes - timer should have been canceled, so no second load
+    await vi.advanceTimersByTimeAsync(1500);
+
+    expect(fetches.claude).toHaveBeenCalledTimes(1);
+  });
+
+  it("skips auto-refresh callback if an intervening load already updated the snapshot", async () => {
+    fetches.claude.mockResolvedValue(sampleLimits(20));
+
+    scheduleRateLimitsAutoRefresh("claude", "default", 1000);
+
+    // Another load updates the cache at a later timestamp
+    vi.setSystemTime(Date.now() + 200);
+    fetches.claude.mockResolvedValueOnce(sampleLimits(50, Date.now()));
+    await loadRateLimits("claude", "default", true);
+
+    expect(fetches.claude).toHaveBeenCalledTimes(1);
+
+    // Advance past original debounce timer
+    await vi.advanceTimersByTimeAsync(1000);
+
+    // Callback should not trigger a redundant load
+    expect(fetches.claude).toHaveBeenCalledTimes(1);
+  });
 });
+

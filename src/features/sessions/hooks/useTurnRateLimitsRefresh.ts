@@ -22,18 +22,42 @@ export function useTurnRateLimitsRefresh(
   busySessionIds: ReadonlySet<string>,
 ): void {
   const previousBusyRef = useRef(busySessionIds);
+  const busyIdentitiesRef = useRef<
+    Map<string, { harness: RateLimitProvider; providerAccountId?: string }>
+  >(new Map());
+
+  // Track the provider identity for currently busy sessions before any in-flight switch
+  for (const session of sessions) {
+    if (busySessionIds.has(session.id) && isRateLimitHarness(session.harness)) {
+      if (!busyIdentitiesRef.current.has(session.id)) {
+        busyIdentitiesRef.current.set(session.id, {
+          harness: session.harness,
+          providerAccountId: session.providerAccountId,
+        });
+      }
+    }
+  }
 
   useEffect(() => {
     const previous = previousBusyRef.current;
     if (previous !== busySessionIds) {
       for (const id of previous) {
         if (!busySessionIds.has(id)) {
+          const tracked = busyIdentitiesRef.current.get(id);
+          busyIdentitiesRef.current.delete(id);
+
           const session = sessions.find((s) => s.id === id);
-          if (session && isRateLimitHarness(session.harness)) {
-            scheduleRateLimitsAutoRefresh(
-              session.harness,
-              session.providerAccountId ?? "default",
-            );
+          const harness =
+            tracked?.harness ??
+            (session && isRateLimitHarness(session.harness)
+              ? session.harness
+              : undefined);
+          const accountId = tracked
+            ? tracked.providerAccountId
+            : session?.providerAccountId;
+
+          if (harness) {
+            scheduleRateLimitsAutoRefresh(harness, accountId ?? "default");
           }
         }
       }

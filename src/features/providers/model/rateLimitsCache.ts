@@ -78,6 +78,9 @@ export function loadRateLimits(
   force = false,
 ): Promise<ProviderRateLimits> {
   const key = keyFor(provider, accountId);
+  if (force) {
+    cancelRateLimitsAutoRefresh(provider, accountId);
+  }
   const running = pending.get(key);
   if (running) {
     if (!force) return running;
@@ -136,8 +139,13 @@ export function scheduleRateLimitsAutoRefresh(
   const existing = autoRefreshTimers.get(key);
   if (existing) clearTimeout(existing);
 
+  const scheduledAt = Date.now();
   const timer = setTimeout(() => {
     autoRefreshTimers.delete(key);
+    const cached = snapshots.get(key);
+    if (cached && cached.updatedAt > scheduledAt) {
+      return;
+    }
     void loadRateLimits(provider, accountId, true);
   }, debounceMs);
 
